@@ -2,21 +2,25 @@ package bug430772;
 
 import java.io.IOException;
 import java.net.HttpURLConnection;
-import java.net.InetSocketAddress;
 import java.net.Proxy;
-import java.net.Proxy.Type;
 import java.net.URL;
 import java.util.List;
 
 import javax.servlet.ServletException;
+import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
+import org.eclipse.jetty.security.ConstraintMapping;
+import org.eclipse.jetty.security.ConstraintSecurityHandler;
+import org.eclipse.jetty.security.HashLoginService;
 import org.eclipse.jetty.server.Connector;
-import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.Server;
-import org.eclipse.jetty.server.handler.AbstractHandler;
 import org.eclipse.jetty.server.nio.SelectChannelConnector;
+import org.eclipse.jetty.servlet.ServletContextHandler;
+import org.eclipse.jetty.servlet.ServletHolder;
+import org.eclipse.jetty.util.security.Constraint;
+import org.eclipse.jetty.util.security.Password;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -53,18 +57,18 @@ public class AuthenticationFailureTest {
       @Override
       public Credential authenticateProxy(Proxy proxy, URL url, List<Challenge> challenges)
           throws IOException {
-        return Credential.basic("username", "password");
+        return Credential.basic("user", "password");
       }
 
       @Override
       public Credential authenticate(Proxy proxy, URL url, List<Challenge> challenges)
           throws IOException {
-        return Credential.basic("username", "password");
+        return Credential.basic("user", "password");
       }
     };
     OkHttpClient client = new OkHttpClient();
     client.setAuthenticator(auth);
-    URL url = new URL("http://127.0.0.1:"+connector.getLocalPort());
+    URL url = new URL("http://127.0.0.1:" + connector.getLocalPort());
     HttpURLConnection connection = client.open(url);
     connection.connect();
     Assert.assertEquals(401, connection.getResponseCode());
@@ -73,34 +77,41 @@ public class AuthenticationFailureTest {
   @Before
   public void startServer() throws Exception {
     server = new Server();
-    server.setHandler(new AbstractHandler() {
-      @Override
-      public void handle(String target, Request baseRequest, HttpServletRequest request,
-          HttpServletResponse response) throws IOException, ServletException {
 
-        // Enumeration<String> headers = request.getHeaderNames();
-        // while (headers.hasMoreElements()) {
-        // String header = headers.nextElement();
-        // Enumeration<String> values = request.getHeaders(header);
-        // StringBuilder sb = new StringBuilder();
-        // sb.append(header).append(":");
-        // while (values.hasMoreElements()) {
-        // sb.append(' ').append(values.nextElement());
-        // }
-        // System.err.println(sb.toString());
-        // }
-
-        response.setStatus(401);
-        // response
-        // .addHeader(
-        // "Proxy-Authenticate",
-        // "Digest realm=\"Digest authentication\", nonce=\"OtEqUwAAAADwQVXL3n8AAEBt6j4AAAAA\", qop=\"auth\", stale=false");
-        response.addHeader("WWW-Authenticate", "Basic realm=\"Basic authentication\"");
-        baseRequest.setHandled(true);
-      }
-    });
+    // connector
     connector = new SelectChannelConnector();
     server.setConnectors(new Connector[] {connector});
+
+    // servlet
+    ServletContextHandler context = new ServletContextHandler(ServletContextHandler.NO_SESSIONS);
+    context.setContextPath("/");
+    server.setHandler(context);
+    HttpServlet servlet = new HttpServlet() {
+      @Override
+      protected void doGet(HttpServletRequest req, HttpServletResponse resp)
+          throws ServletException, IOException {
+        resp.setStatus(204); // no contents
+      }
+    };
+    context.addServlet(new ServletHolder(servlet), "/*");
+
+    // servlet security
+    ConstraintSecurityHandler security = new ConstraintSecurityHandler();
+    context.setSecurityHandler(security);
+    security.setRealmName("Test realm");
+    security.setAuthMethod(Constraint.__BASIC_AUTH);
+    security.setStrict(true);
+    ConstraintMapping mapping = new ConstraintMapping();
+    mapping.setPathSpec("/*");
+    Constraint constraint = new Constraint();
+    constraint.setRoles(new String[] {"role"});
+    constraint.setAuthenticate(true);
+    mapping.setConstraint(constraint);
+    security.addConstraintMapping(mapping);
+    HashLoginService login = new HashLoginService();
+    login.putUser("useR", new Password("passwoRd"), new String[] {"role"});
+    security.setLoginService(login);
+
     server.start();
   }
 
