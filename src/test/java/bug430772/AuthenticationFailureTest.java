@@ -4,7 +4,9 @@ import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.Proxy;
 import java.net.URL;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
@@ -54,24 +56,38 @@ public class AuthenticationFailureTest {
 
 
     OkAuthenticator auth = new OkAuthenticator() {
+      private final Set<String> handled = new HashSet<String>();
+
       @Override
       public Credential authenticateProxy(Proxy proxy, URL url, List<Challenge> challenges)
           throws IOException {
-        return Credential.basic("user", "password");
+        return authenticate(url);
+      }
+
+      Credential authenticate(URL url) {
+        if (handled.add(url.getHost() + ":" + url.getPort())) {
+          return Credential.basic("user", "password");
+        }
+        return null;
       }
 
       @Override
       public Credential authenticate(Proxy proxy, URL url, List<Challenge> challenges)
           throws IOException {
-        return Credential.basic("user", "password");
+        return authenticate(url);
       }
     };
+
     OkHttpClient client = new OkHttpClient();
     client.setAuthenticator(auth);
     URL url = new URL("http://127.0.0.1:" + connector.getLocalPort());
     HttpURLConnection connection = client.open(url);
     connection.connect();
-    Assert.assertEquals(401, connection.getResponseCode());
+    Assert.assertEquals(204, connection.getResponseCode());
+
+    connection = client.open(url);
+    connection.connect();
+    Assert.assertEquals(204, connection.getResponseCode());
   }
 
   @Before
@@ -83,7 +99,7 @@ public class AuthenticationFailureTest {
     server.setConnectors(new Connector[] {connector});
 
     // servlet
-    ServletContextHandler context = new ServletContextHandler(ServletContextHandler.NO_SESSIONS);
+    ServletContextHandler context = new ServletContextHandler(ServletContextHandler.SESSIONS);
     context.setContextPath("/");
     server.setHandler(context);
     HttpServlet servlet = new HttpServlet() {
@@ -109,7 +125,7 @@ public class AuthenticationFailureTest {
     mapping.setConstraint(constraint);
     security.addConstraintMapping(mapping);
     HashLoginService login = new HashLoginService();
-    login.putUser("useR", new Password("passwoRd"), new String[] {"role"});
+    login.putUser("user", new Password("password"), new String[] {"role"});
     security.setLoginService(login);
 
     server.start();
