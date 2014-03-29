@@ -1,13 +1,11 @@
 package bug430772;
 
 import java.io.IOException;
+import java.net.Authenticator;
 import java.net.CookieManager;
 import java.net.HttpURLConnection;
-import java.net.Proxy;
+import java.net.PasswordAuthentication;
 import java.net.URL;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
 
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
@@ -30,10 +28,9 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import com.squareup.okhttp.OkAuthenticator;
 import com.squareup.okhttp.OkHttpClient;
 
-public class AuthenticationFailureTest {
+public class JavaNetAuthenticatorTest {
 
   private Server server;
   private SelectChannelConnector connector;
@@ -57,31 +54,14 @@ public class AuthenticationFailureTest {
     // as of okhttp 1.5.2, the client goes into endless request loop
 
 
-    OkAuthenticator auth = new OkAuthenticator() {
-      private final Set<String> handled = new HashSet<String>();
-
+    Authenticator.setDefault(new Authenticator() {
       @Override
-      public Credential authenticateProxy(Proxy proxy, URL url, List<Challenge> challenges)
-          throws IOException {
-        return authenticate(url);
+      protected PasswordAuthentication getPasswordAuthentication() {
+        return new PasswordAuthentication("useR", "password".toCharArray());
       }
-
-      Credential authenticate(URL url) {
-        if (handled.add(url.getHost() + ":" + url.getPort())) {
-          return Credential.basic("user", "password");
-        }
-        return null;
-      }
-
-      @Override
-      public Credential authenticate(Proxy proxy, URL url, List<Challenge> challenges)
-          throws IOException {
-        return authenticate(url);
-      }
-    };
+    });
 
     OkHttpClient client = new OkHttpClient();
-    client.setAuthenticator(auth);
     client.setCookieHandler(new CookieManager());
     URL url = new URL("http://127.0.0.1:" + connector.getLocalPort());
     HttpURLConnection connection = client.open(url);
@@ -136,7 +116,7 @@ public class AuthenticationFailureTest {
     // sessions
     SessionHandler session = new SessionHandler();
     context.setSessionHandler(session);
-    
+
     server.start();
   }
 
